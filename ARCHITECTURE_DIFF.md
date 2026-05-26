@@ -17,6 +17,7 @@ flowchart TD
 
 ### Added
 - `config/cradio.overlay`: Defines the onboard blue LED as a GPIO LED and exposes it as `indicator-led`.
+- `config/cradio_left.overlay` and `config/cradio_right.overlay`: Include the shared Cradio LED overlay for each build target.
 - `README.md`: Documents the blue LED battery indication behavior.
 
 ### Modified
