@@ -1,0 +1,14 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: MIT
+
+description: Wake source that ignores keys held when protected sleep starts
+
+compatible: "cradio,stuck-key-wakeup"
+
+include: base.yaml
+
+properties:
+  kscan:
+    type: phandle
+    required: true
+    description: Direct GPIO kscan whose input-gpios should be used as wake keys.
