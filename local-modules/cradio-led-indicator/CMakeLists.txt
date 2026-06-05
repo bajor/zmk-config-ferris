@@ -1,1 +1,2 @@
 target_sources_ifdef(CONFIG_INDICATOR_LED_WIDGET app PRIVATE leds.c)
+target_sources_ifdef(CONFIG_CRADIO_STUCK_KEY_SLEEP app PRIVATE stuck_key_sleep.c)

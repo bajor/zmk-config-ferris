@@ -1,6 +1,24 @@
 config INDICATOR_LED_WIDGET
     bool "Enable RGB LED widget for showing battery and output status"
 
+config CRADIO_STUCK_KEY_SLEEP
+    bool "Protect sleep from stuck local keys"
+    depends on ZMK_PM_SOFT_OFF
+    help
+      Enter ZMK soft-off when at least one local key remains held without
+      any local pressed-key set changes for the configured timeout.
+
+config CRADIO_STUCK_KEY_SLEEP_TIMEOUT_MS
+    int "Stuck-key protected sleep timeout in milliseconds"
+    default 600000
+    range 1 2147483647
+    depends on CRADIO_STUCK_KEY_SLEEP
+
+config CRADIO_STUCK_KEY_WAKEUP_INIT_PRIORITY
+    int
+    default 99
+    depends on CRADIO_STUCK_KEY_SLEEP
+
 if INDICATOR_LED_WIDGET
 
 config LED

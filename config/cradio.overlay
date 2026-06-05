@@ -11,4 +11,17 @@
     aliases {
         indicator-led = &user_led;
     };
+
+    stuck_key_wakeup: stuck_key_wakeup {
+        compatible = "cradio,stuck-key-wakeup";
+        status = "okay";
+        wakeup-source;
+        kscan = <&kscan0>;
+    };
+
+    soft_off_wakers {
+        compatible = "zmk,soft-off-wakeup-sources";
+        status = "okay";
+        wakeup-sources = <&stuck_key_wakeup>;
+    };
 };
