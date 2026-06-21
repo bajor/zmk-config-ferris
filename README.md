@@ -16,4 +16,6 @@ After 20 seconds, the LED switches to battery-only tracking:
 - `1%-20%`: faster repeating warning blinks.
 - `0%`: treated as unknown, so the LED stays off until the next battery check.
 
-Layer-change blinks are disabled, so after the startup BLE indication the blue LED is reserved for battery warnings.
+The LED only blinks while ZMK activity state is active. Idle and sleep states turn the LED off and drop pending blink work.
+
+Layer-change blinks are disabled, so after the startup BLE indication the blue LED is reserved for active-state battery warnings.

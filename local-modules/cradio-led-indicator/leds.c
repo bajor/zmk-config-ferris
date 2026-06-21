@@ -8,6 +8,9 @@
 #include <zmk/keymap.h>
 #include <zmk/split/bluetooth/peripheral.h>
 #include <zmk/battery.h>
+#include <zmk/activity.h>
+#include <zmk/event_manager.h>
+#include <zmk/events/activity_state_changed.h>
 #include <zmk/events/layer_state_changed.h>
 
 #include <zephyr/logging/log.h>
@@ -80,16 +83,37 @@ enum runtime_battery_state {
 // Max 6 sequences; more in queue will be dropped.
 K_MSGQ_DEFINE(led_msgq, sizeof(struct blink_item), 6, 1);
 
-static void led_do_blink(struct blink_item blink) {
+static bool indicator_led_is_active(void) {
+    return zmk_activity_get_state() == ZMK_ACTIVITY_ACTIVE;
+}
+
+static void indicator_led_off(void) {
     led_off(led_dev, led_idx);
+}
+
+static void led_queue_blink(const struct blink_item *blink) {
+    if (!indicator_led_is_active()) {
+        return;
+    }
+
+    k_msgq_put(&led_msgq, blink, K_NO_WAIT);
+}
+
+static void led_do_blink(struct blink_item blink) {
+    indicator_led_off();
     k_sleep(K_MSEC(200));
     for (int n = 0; n < blink.n_repeats; n++) {
         for (int i = 0; i < blink.sequence_len; i++) {
+            if (!indicator_led_is_active()) {
+                indicator_led_off();
+                return;
+            }
+
             // on for evens (0 == start, off for odds. If the sequence contains an odd number, will stay on.
             if (i%2 == 0){
                 led_on(led_dev, led_idx);
             } else {
-                led_off(led_dev, led_idx);
+                indicator_led_off();
             }
             uint16_t blink_time = blink.sequence[i];
             k_sleep(K_MSEC(blink_time));
@@ -156,7 +180,7 @@ static void indicate_ble(void) {
         SET_BLINK_SEQUENCE(CONFIG_INDICATOR_LED_PROFILE_UNCONNECTED_PATTERN);
         blink.n_repeats = profile_index;
     }
-    k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+    led_queue_blink(&blink);
 #endif
 #if IS_ENABLED(CONFIG_INDICATOR_LED_SHOW_PERIPHERAL_BLE) && \
     IS_ENABLED(CONFIG_ZMK_SPLIT) && \
@@ -170,7 +194,7 @@ static void indicate_ble(void) {
         SET_BLINK_SEQUENCE(CONFIG_INDICATOR_LED_PROFILE_UNCONNECTED_PATTERN);
         blink.n_repeats = 10;
     }
-    k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+    led_queue_blink(&blink);
 #endif
 
 }
@@ -213,7 +237,7 @@ static void indicate_startup_battery(void) {
         blink.n_repeats = 0;
     }
 
-    k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+    led_queue_blink(&blink);
 }
 #endif
 
@@ -231,7 +255,7 @@ extern void led_runtime_battery_thread(void *d0, void *d1, void *d2) {
         struct blink_item blink = runtime_battery_blink_for_state(state);
 
         if (blink.n_repeats > 0) {
-            k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+            led_queue_blink(&blink);
         }
 
         k_sleep(K_MSEC(runtime_battery_sleep_ms_for_state(state)));
@@ -262,13 +286,13 @@ static int led_layer_listener_cb(const zmk_event_t *eh) {
     struct blink_item blink = BLINK_STRUCT(
         CONFIG_INDICATOR_LED_LAYER_PATTERN, index
     );
-    k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+    led_queue_blink(&blink);
     if (zmk_keymap_highest_layer_active() >=
         CONFIG_INDICATOR_LED_LAYER_PERSISTENCE_THRESHOLD) {
         blink = BLINK_STRUCT(
             STAY_ON, 1
         );
-        k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+        led_queue_blink(&blink);
 
     }
     return 0;
@@ -287,8 +311,16 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
     while (true) {
         // wait until a blink item is received and process it
         struct blink_item blink;
-        k_msgq_get(&led_msgq, &blink, K_FOREVER);
+        int err = k_msgq_get(&led_msgq, &blink, K_FOREVER);
+        if (err < 0) {
+            continue;
+        }
         LOG_DBG("Got a blink item from msgq");
+
+        if (!indicator_led_is_active()) {
+            indicator_led_off();
+            continue;
+        }
 
         led_do_blink(blink);
 
@@ -300,6 +332,24 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 // define led_process_thread with stack size 1024, start running it 100 ms after boot
 K_THREAD_DEFINE(led_process_tid, 1024, led_process_thread, NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO,
                 0, 100);
+
+static int led_activity_listener_cb(const zmk_event_t *eh) {
+    const struct zmk_activity_state_changed *ev = as_zmk_activity_state_changed(eh);
+
+    if (ev == NULL) {
+        return 0;
+    }
+
+    if (ev->state != ZMK_ACTIVITY_ACTIVE) {
+        k_msgq_purge(&led_msgq);
+        indicator_led_off();
+    }
+
+    return 0;
+}
+
+ZMK_LISTENER(led_activity_listener, led_activity_listener_cb);
+ZMK_SUBSCRIPTION(led_activity_listener, zmk_activity_state_changed);
 
 extern void led_init_thread(void *d0, void *d1, void *d2) {
     ARG_UNUSED(d0);

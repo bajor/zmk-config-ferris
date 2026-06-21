@@ -21,9 +21,6 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define DT_DRV_COMPAT cradio_stuck_key_wakeup
 
-#define POSITION_WORD_BITS 32
-#define POSITION_WORDS DIV_ROUND_UP(ZMK_KEYMAP_LEN, POSITION_WORD_BITS)
-
 BUILD_ASSERT(CONFIG_CRADIO_STUCK_KEY_WAKEUP_INIT_PRIORITY > CONFIG_KSCAN_INIT_PRIORITY,
              "stuck-key wake device must initialize after kscan");
 
@@ -32,9 +29,7 @@ struct stuck_key_wakeup_config {
     size_t input_count;
 };
 
-static uint32_t pressed_positions[POSITION_WORDS];
-static size_t pressed_position_count;
-K_MUTEX_DEFINE(pressed_positions_lock);
+static const struct stuck_key_wakeup_config *active_wakeup_config;
 
 static void stuck_key_sleep_work_handler(struct k_work *work);
 
@@ -53,54 +48,59 @@ static void schedule_stuck_key_sleep(void) {
                       K_MSEC(CONFIG_CRADIO_STUCK_KEY_SLEEP_TIMEOUT_MS));
 }
 
-static void cancel_stuck_key_sleep(void) { k_work_cancel_delayable(&stuck_key_sleep_work); }
-
-static bool update_pressed_position(uint32_t position, bool pressed) {
-    uint32_t *word = &pressed_positions[position / POSITION_WORD_BITS];
-    uint32_t mask = BIT(position % POSITION_WORD_BITS);
-    bool was_pressed = (*word & mask) != 0;
-
-    if (was_pressed == pressed) {
-        return false;
+static int stuck_key_any_input_active(const struct stuck_key_wakeup_config *config, bool *active) {
+    if (config == NULL) {
+        LOG_ERR("Stuck-key wakeup config is not ready");
+        return -ENODEV;
     }
 
-    if (pressed) {
-        *word |= mask;
-        pressed_position_count++;
-    } else {
-        *word &= ~mask;
-        pressed_position_count--;
+    *active = false;
+
+    for (size_t i = 0; i < config->input_count; i++) {
+        const struct gpio_dt_spec *gpio = &config->inputs[i];
+
+        if (!device_is_ready(gpio->port)) {
+            LOG_ERR("GPIO port %s is not ready", gpio->port->name);
+            return -ENODEV;
+        }
+
+        int value = gpio_pin_get_dt(gpio);
+        if (value < 0) {
+            LOG_ERR("Unable to read wake input %u on %s: %d", gpio->pin, gpio->port->name, value);
+            return value;
+        }
+
+        if (value > 0) {
+            *active = true;
+            return 0;
+        }
     }
 
-    return true;
+    return 0;
 }
 
 static void stuck_key_sleep_work_handler(struct k_work *work) {
     ARG_UNUSED(work);
 
-    bool should_sleep;
-    bool should_reschedule = false;
-
-    k_mutex_lock(&pressed_positions_lock, K_FOREVER);
-    should_sleep = pressed_position_count > 0;
-    if (should_sleep && usb_powered()) {
-        should_sleep = false;
-        should_reschedule = true;
+    bool input_active;
+    int err = stuck_key_any_input_active(active_wakeup_config, &input_active);
+    if (err < 0) {
+        schedule_stuck_key_sleep();
+        return;
     }
-    k_mutex_unlock(&pressed_positions_lock);
 
-    if (should_reschedule) {
+    if (!input_active) {
+        return;
+    }
+
+    if (usb_powered()) {
         LOG_INF("USB power present; delaying stuck-key protected sleep");
         schedule_stuck_key_sleep();
         return;
     }
 
-    if (!should_sleep) {
-        return;
-    }
-
     LOG_WRN("Entering stuck-key protected sleep");
-    int err = zmk_pm_soft_off();
+    err = zmk_pm_soft_off();
     if (err < 0) {
         LOG_ERR("Failed to enter stuck-key protected sleep: %d", err);
         schedule_stuck_key_sleep();
@@ -115,20 +115,7 @@ static int stuck_key_position_listener(const zmk_event_t *eh) {
         return 0;
     }
 
-    k_mutex_lock(&pressed_positions_lock, K_FOREVER);
-    bool changed = update_pressed_position(ev->position, ev->state);
-    size_t pressed_count = pressed_position_count;
-    k_mutex_unlock(&pressed_positions_lock);
-
-    if (!changed) {
-        return 0;
-    }
-
-    if (pressed_count > 0) {
-        schedule_stuck_key_sleep();
-    } else {
-        cancel_stuck_key_sleep();
-    }
+    schedule_stuck_key_sleep();
 
     return 0;
 }
@@ -137,7 +124,7 @@ ZMK_LISTENER(cradio_stuck_key_sleep, stuck_key_position_listener);
 ZMK_SUBSCRIPTION(cradio_stuck_key_sleep, zmk_position_state_changed);
 
 static int stuck_key_wakeup_init(const struct device *dev) {
-    ARG_UNUSED(dev);
+    active_wakeup_config = dev->config;
 
 #if IS_ENABLED(CONFIG_PM_DEVICE)
     pm_device_init_suspended(dev);
@@ -172,7 +159,7 @@ static int stuck_key_wakeup_resume(const struct device *dev) {
             return active;
         }
 
-        gpio_flags_t interrupt = active ? GPIO_INT_DISABLE : GPIO_INT_LEVEL_ACTIVE;
+        gpio_flags_t interrupt = active ? GPIO_INT_LEVEL_INACTIVE : GPIO_INT_LEVEL_ACTIVE;
         err = gpio_pin_interrupt_configure_dt(gpio, interrupt);
         if (err < 0) {
             LOG_ERR("Unable to configure wake interrupt %u on %s: %d", gpio->pin,
