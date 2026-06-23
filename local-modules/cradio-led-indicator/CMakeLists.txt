@@ -1,2 +1,3 @@
 target_sources_ifdef(CONFIG_INDICATOR_LED_WIDGET app PRIVATE leds.c)
 target_sources_ifdef(CONFIG_CRADIO_STUCK_KEY_SLEEP app PRIVATE stuck_key_sleep.c)
+target_sources_ifdef(CONFIG_CRADIO_SPLIT_IDLE_SCAN_GUARD app PRIVATE split_idle_scan_guard.c)

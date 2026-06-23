@@ -8,6 +8,13 @@ config CRADIO_STUCK_KEY_SLEEP
       Enter ZMK soft-off when at least one local key remains held without
       any local pressed-key set changes for the configured timeout.
 
+config CRADIO_SPLIT_IDLE_SCAN_GUARD
+    bool "Stop split scanning after an idle peripheral disconnect"
+    depends on ZMK_SPLIT && ZMK_SPLIT_ROLE_CENTRAL
+    help
+      Stop the active split central transport when the keyboard is idle and
+      every split peripheral is disconnected.
+
 config CRADIO_STUCK_KEY_SLEEP_TIMEOUT_MS
     int "Stuck-key protected sleep timeout in milliseconds"
     default 600000
