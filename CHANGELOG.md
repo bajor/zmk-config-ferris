@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Stopped the left split central from continuing BLE split scans after all split peripherals disconnect while the keyboard is idle.
+
 ## v0.3.1 - 2026-06-21
 
 ### Fixed
