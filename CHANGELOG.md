@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.1 - 2026-09-03
+
+### Changed
+
+- Changed sleep to 30 mins
+
 ## v0.4.0 - 2026-06-23
 
 ### Fixed
