@@ -4,18 +4,24 @@
 
 This config uses the nice!nano v2 onboard blue user LED on GPIO `P0.15` as the `indicator-led` for a repo-local LED indicator module.
 
-On boot, the blue LED shows BLE status once:
-- Connected active profile `n`: `n` longer blinks.
-- Open or advertising active profile `n`: `n` short blinks.
-- Disconnected active profile `n`: `n` sparse blinks.
-- On a peripheral half, connected shows one longer blink and disconnected shows sparse blinks during the startup indication.
+Each half shows its own battery level once when powered on. Each fast blink is 100 ms on followed by 100 ms off:
 
-After 20 seconds, the LED switches to battery-only tracking:
-- `41%-100%`: no blinking.
-- `21%-40%`: slower repeating warning blinks.
-- `1%-20%`: faster repeating warning blinks.
-- `0%`: treated as unknown, so the LED stays off until the next battery check.
+| Battery level | Blinks |
+| --- | --- |
+| 100% | 10 |
+| 90–99% | 9 |
+| 80–89% | 8 |
+| 70–79% | 7 |
+| 60–69% | 6 |
+| 50–59% | 5 |
+| 40–49% | 4 |
+| 30–39% | 3 |
+| 20–29% | 2 |
+| 10–19% | 1 |
+| 0–9% or unavailable | 0 |
 
-The LED only blinks while ZMK activity state is active. Idle and sleep states turn the LED off and drop pending blink work.
+At startup, a zero reading is retried for up to one second to allow the battery sample to become available. If it remains zero, no blinks are shown.
 
-Layer-change blinks are disabled, so after the startup BLE indication the blue LED is reserved for active-state battery warnings.
+After that single sequence, the LED stays off. Periodic battery warnings are removed; Bluetooth and layer-change indications are disabled. Ordinary idle-to-active transitions do not repeat the sequence. A new boot, including a reset or wake from deep sleep that reboots ZMK, shows it again.
+
+Idle and sleep states turn the LED off and discard pending blinks without replaying them on activity resume. This controls the blue user LED, not the hardware charging LED.

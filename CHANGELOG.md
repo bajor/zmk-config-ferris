@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.0 - 2026-11-10
+
+### Changed
+
+- Replaced periodic battery warnings and startup Bluetooth indications with one fast battery-level blink sequence per half at power-on: 10 blinks at 100%, 9 at 90–99%, down to 1 at 10–19% and none below 10% or when unavailable.
+- Removed runtime battery LED tracking and its configuration settings. The LED stays off after the startup sequence and does not repeat on ordinary activity resume.
+- Updated the README with blink counts, timing, and startup behavior.
+
 ## v0.4.1 - 2026-09-03
 
 ### Changed

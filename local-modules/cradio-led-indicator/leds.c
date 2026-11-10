@@ -30,22 +30,15 @@ do { \
     }
 
 static const uint16_t CONFIG_INDICATOR_LED_LAYER_PATTERN[] = {80, 120};
-static const uint16_t CONFIG_INDICATOR_LED_BATTERY_CRITICAL_PATTERN[] = {40, 40};
-static const uint16_t CONFIG_INDICATOR_LED_BATTERY_HIGH_PATTERN[] = {500, 500};
-static const uint16_t CONFIG_INDICATOR_LED_BATTERY_LOW_PATTERN[] = {100, 100};
+#if IS_ENABLED(CONFIG_ZMK_BLE) && IS_ENABLED(CONFIG_INDICATOR_LED_SHOW_BLE)
 // When connected, more on than off
 static const uint16_t CONFIG_INDICATOR_LED_BLE_PROFILE_CONNECTED_PATTERN[] = {1000, 100};
 // When open/unpaired, tiny blips.
 static const uint16_t CONFIG_INDICATOR_LED_BLE_PROFILE_OPEN_PATTERN[] = {80, 80};
 // When unconnected and searching, more off than on
 static const uint16_t CONFIG_INDICATOR_LED_PROFILE_UNCONNECTED_PATTERN[] = {200, 800};
-static const uint16_t STAY_ON[] = {10};
-#if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING) && \
-    IS_ENABLED(CONFIG_INDICATOR_LED_RUNTIME_BATTERY_TRACKING)
-static const int32_t RUNTIME_BATTERY_OFF_INTERVAL_MS = 10000;
-static const int32_t RUNTIME_BATTERY_LOW_INTERVAL_MS = 6000;
-static const int32_t RUNTIME_BATTERY_CRITICAL_INTERVAL_MS = 3000;
 #endif
+static const uint16_t STAY_ON[] = {10};
 
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -68,15 +61,6 @@ struct blink_item {
     size_t sequence_len;
     uint8_t n_repeats;
 };
-
-#if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING) && \
-    IS_ENABLED(CONFIG_INDICATOR_LED_RUNTIME_BATTERY_TRACKING)
-enum runtime_battery_state {
-    RUNTIME_BATTERY_STATE_OFF = 0,
-    RUNTIME_BATTERY_STATE_LOW,
-    RUNTIME_BATTERY_STATE_CRITICAL,
-};
-#endif
 
 
 // define message queue of blink work items, that will be processed by a separate thread
@@ -120,46 +104,6 @@ static void led_do_blink(struct blink_item blink) {
         }
     }
 }
-
-#if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING) && \
-    IS_ENABLED(CONFIG_INDICATOR_LED_RUNTIME_BATTERY_TRACKING)
-static enum runtime_battery_state runtime_battery_state_for_level(uint8_t battery_level) {
-    if (battery_level == 0 ||
-        battery_level > CONFIG_INDICATOR_LED_RUNTIME_BATTERY_LOW_THRESHOLD) {
-        return RUNTIME_BATTERY_STATE_OFF;
-    }
-
-    if (battery_level <= CONFIG_INDICATOR_LED_RUNTIME_BATTERY_CRITICAL_THRESHOLD) {
-        return RUNTIME_BATTERY_STATE_CRITICAL;
-    }
-
-    return RUNTIME_BATTERY_STATE_LOW;
-}
-
-static struct blink_item runtime_battery_blink_for_state(enum runtime_battery_state state) {
-    switch (state) {
-    case RUNTIME_BATTERY_STATE_CRITICAL:
-        return BLINK_STRUCT(CONFIG_INDICATOR_LED_BATTERY_CRITICAL_PATTERN, 1);
-    case RUNTIME_BATTERY_STATE_LOW:
-        return BLINK_STRUCT(CONFIG_INDICATOR_LED_BATTERY_LOW_PATTERN, 1);
-    case RUNTIME_BATTERY_STATE_OFF:
-    default:
-        return (struct blink_item){0};
-    }
-}
-
-static int32_t runtime_battery_sleep_ms_for_state(enum runtime_battery_state state) {
-    switch (state) {
-    case RUNTIME_BATTERY_STATE_CRITICAL:
-        return RUNTIME_BATTERY_CRITICAL_INTERVAL_MS;
-    case RUNTIME_BATTERY_STATE_LOW:
-        return RUNTIME_BATTERY_LOW_INTERVAL_MS;
-    case RUNTIME_BATTERY_STATE_OFF:
-    default:
-        return RUNTIME_BATTERY_OFF_INTERVAL_MS;
-    }
-}
-#endif
 
 #if IS_ENABLED(CONFIG_ZMK_BLE) && IS_ENABLED(CONFIG_INDICATOR_LED_SHOW_BLE)
 static void indicate_ble(void) {
@@ -206,64 +150,29 @@ static void indicate_ble(void) {
 
 #if IS_ENABLED(CONFIG_INDICATOR_LED_SHOW_BATTERY_ON_BOOT)
 static void indicate_startup_battery(void) {
+    static const uint16_t STARTUP_BATTERY_PATTERN[] = {100, 100};
+    static const uint8_t BATTERY_PERCENT_PER_BLINK = 10;
+    static const uint8_t STARTUP_BATTERY_MAX_RETRIES = 10;
+    static const uint16_t STARTUP_BATTERY_RETRY_INTERVAL_MS = 100;
+
     // check and indicate battery level on thread start
     LOG_INF("Indicating initial battery status");
 
-    struct blink_item blink = {};
     uint8_t battery_level = zmk_battery_state_of_charge();
     int retry = 0;
-    while (battery_level == 0 && retry++ < 10) {
-        k_sleep(K_MSEC(100));
+    while (battery_level == 0 && retry++ < STARTUP_BATTERY_MAX_RETRIES) {
+        k_sleep(K_MSEC(STARTUP_BATTERY_RETRY_INTERVAL_MS));
         battery_level = zmk_battery_state_of_charge();
-    };
-
-    if (battery_level == 0) {
-        LOG_INF("Startup Battery level undetermined (zero), blinking off");
-        blink.sequence_len = 0;
-        blink.n_repeats = 0;
-    } else if (battery_level >= CONFIG_INDICATOR_LED_BATTERY_LEVEL_HIGH) {
-        LOG_INF("Startup Battery level %d, blinking for high", battery_level);
-        SET_BLINK_SEQUENCE(CONFIG_INDICATOR_LED_BATTERY_HIGH_PATTERN);
-        blink.n_repeats = CONFIG_INDICATOR_LED_BATTERY_HIGH_BLINK_REPEAT;
-    } else if (battery_level <= CONFIG_INDICATOR_LED_BATTERY_LEVEL_CRITICAL){
-        LOG_INF("Startup Battery level %d, blinking for critical", battery_level);
-        SET_BLINK_SEQUENCE(CONFIG_INDICATOR_LED_BATTERY_CRITICAL_PATTERN);
-        blink.n_repeats = CONFIG_INDICATOR_LED_BATTERY_CRITICAL_BLINK_REPEAT;
-    } else if (battery_level <= CONFIG_INDICATOR_LED_BATTERY_LEVEL_LOW) {
-        LOG_INF("Startup Battery level %d, blinking for low", battery_level);
-        SET_BLINK_SEQUENCE(CONFIG_INDICATOR_LED_BATTERY_LOW_PATTERN);
-        blink.n_repeats = CONFIG_INDICATOR_LED_BATTERY_LOW_BLINK_REPEAT;
-    } else {
-        blink.n_repeats = 0;
     }
 
-    led_queue_blink(&blink);
-}
-#endif
-
-#if IS_ENABLED(CONFIG_INDICATOR_LED_RUNTIME_BATTERY_TRACKING)
-extern void led_runtime_battery_thread(void *d0, void *d1, void *d2) {
-    ARG_UNUSED(d0);
-    ARG_UNUSED(d1);
-    ARG_UNUSED(d2);
-
-    k_sleep(K_SECONDS(CONFIG_INDICATOR_LED_RUNTIME_BATTERY_START_DELAY_S));
-
-    while (true) {
-        uint8_t battery_level = zmk_battery_state_of_charge();
-        enum runtime_battery_state state = runtime_battery_state_for_level(battery_level);
-        struct blink_item blink = runtime_battery_blink_for_state(state);
-
-        if (blink.n_repeats > 0) {
-            led_queue_blink(&blink);
-        }
-
-        k_sleep(K_MSEC(runtime_battery_sleep_ms_for_state(state)));
+    struct blink_item blink = BLINK_STRUCT(
+        STARTUP_BATTERY_PATTERN, battery_level / BATTERY_PERCENT_PER_BLINK
+    );
+    LOG_INF("Startup battery level %d, blinking %d times", battery_level, blink.n_repeats);
+    if (blink.n_repeats > 0) {
+        led_queue_blink(&blink);
     }
 }
-
-K_THREAD_DEFINE(led_runtime_battery_tid, 1024, led_runtime_battery_thread,
-                NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 300);
 #endif
 
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
@@ -355,6 +264,11 @@ extern void led_init_thread(void *d0, void *d1, void *d2) {
     ARG_UNUSED(d0);
     ARG_UNUSED(d1);
     ARG_UNUSED(d2);
+
+#if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING) && \
+    IS_ENABLED(CONFIG_INDICATOR_LED_SHOW_BATTERY_ON_BOOT)
+    indicate_startup_battery();
+#endif
 
 #if IS_ENABLED(CONFIG_ZMK_BLE) && IS_ENABLED(CONFIG_INDICATOR_LED_SHOW_BLE)
     LOG_INF("Indicating initial connectivity status");
