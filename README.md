@@ -1,5 +1,15 @@
 # zmk-config-ferris
 
+## Backspace repeat
+
+The right thumb key uses Backspace on tap and activates layer 1 on hold.
+
+- Tap once to delete one character.
+- Tap, then press the same key again within 250 ms of the first press and hold to repeat Backspace (subject to the host OS key-repeat settings).
+- Hold normally to activate layer 1.
+
+Only the Backspace layer-tap has this quick-tap behavior; the Tab layer-tap is unchanged.
+
 ## nice!nano blue LED battery indicator
 
 This config uses the nice!nano v2 onboard blue user LED on GPIO `P0.15` as the `indicator-led` for a repo-local LED indicator module.
