@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Enabled tap-then-hold Backspace repeat on the right thumb: tap Backspace, then press it again within 250 ms and hold to repeat deletion. The normal hold-to-activate-layer-1 behavior is unchanged, and Tab's layer-tap is unaffected.
+
 ## v0.5.0 - 2026-11-10
 
 ### Changed
